@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration debug="true" scan="true" scanPeriod="30 seconds">
+	<contextName>cense</contextName>
+
+	<contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+		<resetJUL>true</resetJUL>
+	</contextListener>
+
+	<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %level [%thread] [%logger{30}] %msg%n</pattern>
+		</encoder>
+	</appender>
+
+	<root level="debug">
+		<appender-ref ref="CONSOLE" />
+	</root>
+
+	<logger name="org.apache" level="info" />
+
+	<logger name="org.springframework" level="info" />
+
+	<logger name="net.sf.ehcache" level="info" />
+
+	<logger name="org.hibernate" level="info" />
+</configuration>

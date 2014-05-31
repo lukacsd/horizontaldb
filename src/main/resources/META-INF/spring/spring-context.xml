@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tx="http://www.springframework.org/schema/tx"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:util="http://www.springframework.org/schema/util" xmlns:aop="http://www.springframework.org/schema/aop"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd
+        http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.1.xsd
+        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.1.xsd
+        http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-3.1.xsd
+        http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-3.1.xsd">
+
+	<context:annotation-config />
+
+	<context:component-scan base-package="org.horizontaldb" />
+
+	<util:properties id="dbProperties" location="classpath:db.properties" />
+	
+	<context:property-placeholder ignore-resource-not-found="true" ignore-unresolvable="true"
+        properties-ref="dbProperties" />
+
+	<bean id="sessionFactory" class="org.springframework.orm.hibernate4.LocalSessionFactoryBean">
+		<property name="packagesToScan">
+			<list>
+				<value>org.horizontaldb.example.model</value>
+			</list>
+		</property>
+		<property name="hibernateProperties">
+			<props>
+				<prop key="hibernate.dialect">${hibernate.dialect}</prop>
+				<prop key="hibernate.multiTenancy">DATABASE</prop>
+				<prop key="hibernate.multi_tenant_connection_provider">#{ defaultTenantConnectionProvider }</prop>
+				<prop key="hibernate.tenant_identifier_resolver">#{ defaultTenantContext }</prop>
+				<prop key="hibernate.cache.use_second_level_cache">true</prop>
+				<prop key="hibernate.cache.use_query_cache">true</prop>
+				<prop key="hibernate.cache.region.factory_class">org.hibernate.cache.ehcache.EhCacheRegionFactory</prop>
+				<prop key="hibernate.show_sql">${hibernate.show_sql}</prop>
+				<prop key="hibernate.generate_statistics">${hibernate.generate_statistics}</prop>
+				<prop key="hibernate.temp.use_jdbc_metadata_defaults">false</prop>
+			</props>
+		</property>
+	</bean>
+
+	<bean class="org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor" />
+
+	<bean id="persistentConversationRegistrarBean" class="org.horizontaldb.shard.advise.PersistentConversationRegistrarAspect">
+		<property name="order" value="1" />
+	</bean>
+	
+	<bean id="persistentConversationValidatorBean" class="org.horizontaldb.shard.advise.PersistentConversationValidatorAspect">
+		<property name="order" value="5" />
+	</bean>
+	
+	<bean id="tenantIdValidatorBean" class="org.horizontaldb.shard.hibernate.advise.TenantIdValidatorAspect">
+		<property name="order" value="5" />
+	</bean>
+
+	<bean id="tenantContextEnricherBean" class="org.horizontaldb.shard.hibernate.advise.TenantContextEnricherAspect">
+		<property name="order" value="100" />
+	</bean>
+
+	<bean id="txManager" class="org.springframework.orm.hibernate4.HibernateTransactionManager">
+		<property name="sessionFactory" ref="sessionFactory" />
+		<property name="autodetectDataSource" value="false" />
+	</bean>
+
+	<tx:annotation-driven transaction-manager="txManager" order="200" />
+
+	<bean id="shardContextEnricherBean" class="org.horizontaldb.shard.advise.ShardContextEnricherAspect">
+		<property name="order" value="300" />
+
+		<property name="targetResolvers">
+            <map key-type="java.lang.Class" value-type="org.horizontaldb.shard.resolver.ShardBeanResolver">
+                <entry key="java.lang.Object" value-ref="defaultResolver" />
+            </map>
+        </property>
+
+		<property name="targetEnrichers">
+            <map key-type="java.lang.Class" value-type="au.com.cense.model.shard.ShardBeanEnricher">
+                <entry key="org.horizontaldb.example.model.dao.AbstractDao" value-ref="abstractDaoEnricher" />
+            </map>
+        </property>
+	</bean>
+
+	<aop:aspectj-autoproxy />
+
+	<aop:config>
+		<aop:aspect id="persistentConversationRegistrarAdvice" ref="persistentConversationRegistrarBean" />
+		<aop:aspect id="persistentConversationValidatorAdvice" ref="persistentConversationValidatorBean" />
+		<aop:aspect id="tenantIdValidatorAdvice" ref="tenantIdValidatorBean" />
+		<aop:aspect id="tenantContextEnrichAdvice" ref="tenantContextEnricherBean" />
+		<aop:aspect id="shardContextEnrichAdvice" ref="shardContextEnricherBean" />
+	</aop:config>
+
+</beans>
