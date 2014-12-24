@@ -16,8 +16,9 @@
 
 package org.horizontaldb.shard.hibernate;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -49,151 +50,200 @@ import org.springframework.stereotype.Component;
 
 @Component( "abstractDaoEnricher" )
 public class AbstractDaoEnricher implements ShardBeanEnricher {
-	private static final Logger LOG = LoggerFactory.getLogger( AbstractDaoEnricher.class );
+    private static final Logger LOG = LoggerFactory.getLogger( AbstractDaoEnricher.class );
 
-	private HibernateTransactionManager txManager;
-	private ThreadLocal<Deque<ContextFrame>> contextStack = new ThreadLocal<>( );
+    private HibernateTransactionManager txManager;
+    private ThreadLocal<QueueList<ContextFrame>> contextStack = new ThreadLocal<>( );
 
-	@Inject
-	public AbstractDaoEnricher( HibernateTransactionManager txManager ) {
-		this.txManager = txManager;
-	}
+    @Inject
+    public AbstractDaoEnricher( HibernateTransactionManager txManager ) {
+        this.txManager = txManager;
+    }
 
-	@Override
-	public void setup( Object bean, ShardContext shardContext ) {
-		pushContextFrame( shardContext );
+    @Override
+    public void setup( Object bean, ShardContext shardContext ) {
+        pushContextFrame( shardContext, bean );
 
-		AbstractDao abstractDao = ( AbstractDao ) bean;
-		abstractDao.setSession( peekContextSession( ) );
-	}
+        AbstractDao abstractDao = ( AbstractDao ) bean;
+        abstractDao.setSession( contextStack( ).peek( ).getSession( ) );
+    }
 
-	@Override
-	public void tearDown( Object bean, ShardContext shardContext ) {
-		AbstractDao abstractDao = ( AbstractDao ) bean;
-		abstractDao.setSession( pollContextSession( ) );
-	}
+    @Override
+    public void tearDown( Object bean, ShardContext shardContext ) {
+        AbstractDao abstractDao = ( AbstractDao ) bean;
+        abstractDao.setSession( pollContextSession( bean ) );
+    }
 
-	private void pushContextFrame( ShardContext shardContext ) {
-		ContextFrame currentFrame = contextStack( ).peek( );
+    private void pushContextFrame( ShardContext shardContext, Object bean ) {
+        ContextFrame currentFrame = contextStack( ).peek( );
 
-		if ( currentFrame == null || !currentFrame.isSame( shardContext ) ) {
-			contextStack( ).push( getNewFrame( shardContext ) );
-		} else {
-			currentFrame.increaseUsageCount( );
-		}
-	}
+        if ( currentFrame == null || !currentFrame.isSame( shardContext ) ) {
+            currentFrame = getNewFrame( shardContext );
 
-	private ContextFrame getNewFrame( ShardContext shardContext ) {
-		SessionFactory sessionFactory = txManager.getSessionFactory( );
+            contextStack( ).push( currentFrame );
+        } else {
+            currentFrame.increaseUsageCount( );
+        }
 
-		Session session = sessionFactory.getCurrentSession( );
+        currentFrame.addType( bean );
+    }
 
-		return new ContextFrame( shardContext, session );
-	}
+    private ContextFrame getNewFrame( ShardContext shardContext ) {
+        SessionFactory sessionFactory = txManager.getSessionFactory( );
 
-	private Session peekContextSession() {
-		return contextStack( ).peek( ).getSession( );
-	}
+        Session session = sessionFactory.getCurrentSession( );
 
-	/*
-	 * Method responsibilities:
-	 *   - return session from current frame unless it is spent
-	 *   - in case current frame is spent, return session from next frame if there is any
-	 *   - otherwise return nothing
-	 */
-	private Session pollContextSession() {
-		Session retval = null;
+        return new ContextFrame( shardContext, session );
+    }
 
-		ContextFrame currentFrame = contextStack( ).peek( );
-		currentFrame.decreaseUsageCount( );
+    /*
+     * Method responsibilities:
+     *  - administer usage of current frame, dispose spent ones
+     *  - return a proper session reference (or null) for a given bean type
+     *   
+     * Return value is found according to the following:
+     *  - extract session from the first context on the stack that contains the same type of bean
+     *  - return nothing if there are no previous frames on the stack, or there are no frames
+     *    that contain the same type
+     */
+    private Session pollContextSession( Object bean ) {
+        Session retval = null;
 
-		if ( currentFrame.isSpent( ) ) {
-			logSlcStats( currentFrame.getSession( ), currentFrame.getShardContext( ).getClientId( ) );
+        ContextFrame currentFrame = contextStack( ).peek( );
+        currentFrame.decreaseUsageCount( );
 
-			contextStack( ).poll( );
+        if ( contextStack( ).size( ) > 1 ) {
+            for ( ContextFrame previousFrame : contextStack( ) ) {
+                if ( currentFrame != previousFrame && previousFrame.hasType( bean ) ) {
+                    retval = previousFrame.getSession( );
 
-			currentFrame = contextStack( ).peek( );
-		}
+                    break;
+                }
+            }
+        }
 
-		if ( currentFrame != null ) {
-			retval = currentFrame.getSession( );
-		}
+        if ( currentFrame.isSpent( ) ) {
+            logSlcStats( currentFrame.getSession( ), currentFrame.getShardContext( ).getClientId( ) );
 
-		return retval;
-	}
+            contextStack( ).poll( );
+        }
 
-	private void logSlcStats( Session session, String tenantId ) {
-		if ( LOG.isTraceEnabled( ) && session != null ) {
-			Statistics statistics = session.getSessionFactory( ).getStatistics( );
+        return retval;
+    }
 
-			if ( statistics != null && statistics.isStatisticsEnabled( ) ) {
-				String[ ] regions = statistics.getSecondLevelCacheRegionNames( );
+    private void logSlcStats( Session session, String tenantId ) {
+        if ( LOG.isTraceEnabled( ) && session != null ) {
+            Statistics statistics = session.getSessionFactory( ).getStatistics( );
 
-				for ( String region : regions ) {
-					SecondLevelCacheStatistics stat = statistics.getSecondLevelCacheStatistics( region );
+            if ( statistics != null && statistics.isStatisticsEnabled( ) ) {
+                String[ ] regions = statistics.getSecondLevelCacheRegionNames( );
 
-					LOG.trace( String.format(
-							"secondLevelCacheStatistics.%s.%s=hits[%s], misses[%s], puts[%s], memCount[%s], memSize[%s], diskCount[%s]",
-							tenantId, region, stat.getHitCount( ), stat.getMissCount( ), stat.getPutCount( ),
-							stat.getElementCountInMemory( ), stat.getSizeInMemory( ), stat.getElementCountOnDisk( ) ) );
-				}
-			}
-		}
-	}
+                for ( String region : regions ) {
+                    SecondLevelCacheStatistics stat = statistics.getSecondLevelCacheStatistics( region );
 
-	private Deque<ContextFrame> contextStack() {
-		Deque<ContextFrame> retval = contextStack.get( );
+                    LOG.trace( String.format(
+                            "secondLevelCacheStatistics.%s.%s=hits[%s], misses[%s], puts[%s], memCount[%s], memSize[%s], diskCount[%s]",
+                            tenantId, region, stat.getHitCount( ), stat.getMissCount( ), stat.getPutCount( ),
+                            stat.getElementCountInMemory( ), stat.getSizeInMemory( ), stat.getElementCountOnDisk( ) ) );
+                }
+            }
+        }
+    }
 
-		if ( retval == null ) {
-			retval = new ArrayDeque<>( );
+    private QueueList<ContextFrame> contextStack() {
+        QueueList<ContextFrame> retval = contextStack.get( );
 
-			contextStack.set( retval );
-		}
+        if ( retval == null ) {
+            retval = new QueueList<>( );
 
-		return retval;
-	}
+            contextStack.set( retval );
+        }
 
-	/*
-	 * Helper class to track Session usage per context
-	 */
-	public class ContextFrame {
-		private int usageCount;
-		private Session session;
-		private ShardContext shardContext;
+        return retval;
+    }
 
-		public ContextFrame( ShardContext shardContext, Session session ) {
-			this.shardContext = shardContext;
-			this.session = session;
-		}
+    public class QueueList<T> extends ArrayList<T> {
+        private static final long serialVersionUID = 7549664185950822943L;
 
-		public void increaseUsageCount() {
-			usageCount++;
-		}
+        public T peek() {
+            T retval = null;
 
-		public void decreaseUsageCount() {
-			usageCount--;
-		}
+            if ( size( ) > 0 ) {
+                retval = get( 0 );
+            }
 
-		public Session getSession() {
-			return session;
-		}
+            return retval;
+        }
 
-		public ShardContext getShardContext() {
-			return shardContext;
-		}
+        public T poll() {
+            T retval = null;
 
-		public boolean isSame( ShardContext shardContext ) {
-			return this.shardContext == shardContext;
-		}
+            if ( size( ) > 0 ) {
+                retval = remove( 0 );
+            }
 
-		public boolean isSpent() {
-			return usageCount < 0;
-		}
+            if ( size( ) == 0 ) {
+                contextStack.set( null );
+            }
 
-		@Override
-		public String toString() {
-			return "ContextFrame [usageCount=" + usageCount + ", session=" + session + ", shardContext=" + shardContext + "]";
-		}
-	}
+            return retval;
+        }
+
+        public void push( T element ) {
+            add( 0, element );
+        }
+    }
+
+    /*
+     * Helper class to track Session usage per context
+     */
+    public class ContextFrame {
+        private int usageCount;
+        private Session session;
+        private ShardContext shardContext;
+        private Set<Class<?>> beanTypes = new HashSet<>( );
+
+        public ContextFrame( ShardContext shardContext, Session session ) {
+            this.shardContext = shardContext;
+            this.session = session;
+        }
+
+        public void addType( Object bean ) {
+            beanTypes.add( bean.getClass( ) );
+        }
+
+        public boolean hasType( Object bean ) {
+            return beanTypes.contains( bean.getClass( ) );
+        }
+
+        public void increaseUsageCount() {
+            usageCount++;
+        }
+
+        public void decreaseUsageCount() {
+            usageCount--;
+        }
+
+        public Session getSession() {
+            return session;
+        }
+
+        public ShardContext getShardContext() {
+            return shardContext;
+        }
+
+        public boolean isSame( ShardContext shardContext ) {
+            return this.shardContext == shardContext;
+        }
+
+        public boolean isSpent() {
+            return usageCount < 0;
+        }
+
+        @Override
+        public String toString() {
+            return "ContextFrame [usageCount=" + usageCount + ", session=" + session + ", shardContext=" + shardContext + "]";
+        }
+    }
 
 }

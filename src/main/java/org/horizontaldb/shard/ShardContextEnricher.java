@@ -96,7 +96,7 @@ public abstract class ShardContextEnricher {
 
 		registerResourceWithConversation( shardContext, bean );
 
-		shardContext.setBean( shardBean.value( ), shardBean.qualifier( ), bean );
+		shardContext.setBean( shardBean.value( ), bean );
 
 		return bean;
 	}

@@ -24,6 +24,8 @@ import org.easymock.EasyMock;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.horizontaldb.example.model.dao.AbstractDao;
+import org.horizontaldb.example.model.dao.DepartmentDaoImpl;
+import org.horizontaldb.example.model.dao.PersonDaoImpl;
 import org.horizontaldb.shard.ShardContext;
 import org.junit.After;
 import org.junit.Before;
@@ -34,131 +36,146 @@ import org.springframework.orm.hibernate4.HibernateTransactionManager;
 
 @RunWith( JUnit4.class )
 public class AbstractDaoEnricherTest {
-	private HibernateTransactionManager txManager;
+    private HibernateTransactionManager txManager;
 
-	@Before
-	public void setUp() {
-		txManager = EasyMock.createMock( HibernateTransactionManager.class );
-	}
+    @Before
+    public void setUp() {
+        txManager = EasyMock.createMock( HibernateTransactionManager.class );
+    }
 
-	@After
-	public void tearDown() {
-		txManager = null;
-	}
+    @After
+    public void tearDown() {
+        txManager = null;
+    }
 
-	@Test
-	public void shouldSetAndUnsetSessionForAbstractDao() {
-		AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
+    @Test
+    public void shouldSetAndUnsetSessionForDao() {
+        AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
 
-		ShardContext shardContext = new ShardContext( "testClient" );
-		SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
-		Session mockSession = EasyMock.createMock( Session.class );
-		AbstractDao mockDao = EasyMock.createMock( AbstractDao.class );
+        ShardContext shardContext = new ShardContext( "testClient" );
+        SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
+        Session mockSession = EasyMock.createMock( "mockSession", Session.class );
+        AbstractDao mockDao = EasyMock.createMock( "mockDao", AbstractDao.class );
 
-		expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
-		expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSessionFactory.getStatistics( ) ).andReturn( null );
-		// setup
-		mockDao.setSession( mockSession );
-		// tearDown
-		mockDao.setSession( null );
+        // called during statistics logging
+        expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSessionFactory.getStatistics( ) ).andReturn( null );
+        // called during statistics logging
 
-		replay( txManager, mockSessionFactory, mockSession, mockDao );
+        expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
+        // setup
+        mockDao.setSession( mockSession );
+        // tearDown
+        mockDao.setSession( null );
 
-		enricher.setup( mockDao, shardContext );
+        replay( txManager, mockSessionFactory, mockSession, mockDao );
 
-		enricher.tearDown( mockDao, shardContext );
+        enricher.setup( mockDao, shardContext );
 
-		verify( txManager, mockSessionFactory, mockSession, mockDao );
-	}
+        enricher.tearDown( mockDao, shardContext );
 
-	@Test
-	public void shouldSetAndUnsetDistinctSessionsForAbstractDaoForDistinctContexts() {
-		AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
+        verify( txManager, mockSessionFactory, mockSession, mockDao );
+    }
 
-		ShardContext shardContext = new ShardContext( "testClient" );
-		ShardContext shardContext1 = new ShardContext( "testClient" );
-		ShardContext shardContext2 = new ShardContext( "testClient" );
+    @Test
+    public void shouldSetAndUnsetDistinctSessionsForDaoUsingDistinctContexts() {
+        AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
 
-		SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
-		Session mockSession = EasyMock.createMock( "mockSession", Session.class );
-		Session mockSession1 = EasyMock.createMock( "mockSession1", Session.class );
-		Session mockSession2 = EasyMock.createMock( "mockSession2", Session.class );
-		AbstractDao mockDao = EasyMock.createMock( AbstractDao.class );
+        ShardContext shardContext = new ShardContext( "testClient" );
+        ShardContext shardContext1 = new ShardContext( "testClient1" );
+        ShardContext shardContext2 = new ShardContext( "testClient2" );
 
-		expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory ).times( 3 );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession1 );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession2 );
-		expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSession1.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSession2.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSessionFactory.getStatistics( ) ).andReturn( null ).times( 3 );
-		// setups
-		mockDao.setSession( mockSession );
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession2 );
-		// tearDowns
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession );
-		mockDao.setSession( null );
+        SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
+        Session mockSession = EasyMock.createMock( "mockSession", Session.class );
+        Session mockSession1 = EasyMock.createMock( "mockSession1", Session.class );
+        Session mockSession2 = EasyMock.createMock( "mockSession2", Session.class );
+        AbstractDao mockDao = EasyMock.createMock( "mockDao", AbstractDao.class );
 
-		replay( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao );
+        // called during statistics logging
+        expect( mockSession2.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSession1.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSessionFactory.getStatistics( ) ).andReturn( null ).times( 3 );
+        // called during statistics logging
 
-		enricher.setup( mockDao, shardContext );
-		enricher.setup( mockDao, shardContext1 );
-		enricher.setup( mockDao, shardContext2 );
+        expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory ).times( 3 );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession1 );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession2 );
+        // setups
+        mockDao.setSession( mockSession );
+        mockDao.setSession( mockSession1 );
+        mockDao.setSession( mockSession2 );
+        // tearDowns
+        mockDao.setSession( mockSession1 );
+        mockDao.setSession( mockSession );
+        mockDao.setSession( null );
 
-		enricher.tearDown( mockDao, shardContext2 );
-		enricher.tearDown( mockDao, shardContext1 );
-		enricher.tearDown( mockDao, shardContext );
+        replay( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao );
 
-		verify( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao );
-	}
+        enricher.setup( mockDao, shardContext );
+        enricher.setup( mockDao, shardContext1 );
+        enricher.setup( mockDao, shardContext2 );
 
-	@Test
-	public void shouldSetAndUnsetSameSessionsForAbstractDaoForSameContexts() {
-		AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
+        enricher.tearDown( mockDao, shardContext2 );
+        enricher.tearDown( mockDao, shardContext1 );
+        enricher.tearDown( mockDao, shardContext );
 
-		ShardContext shardContext = new ShardContext( "testClient" );
-		ShardContext shardContext1 = new ShardContext( "testClient" );
+        verify( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao );
+    }
 
-		SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
-		Session mockSession = EasyMock.createMock( "mockSession", Session.class );
-		Session mockSession1 = EasyMock.createMock( "mockSession1", Session.class );
-		AbstractDao mockDao = EasyMock.createMock( AbstractDao.class );
+    @Test
+    public void shouldSetAndUnsetProperSessionsForDistinctDaosUsingDistinctContexts() {
+        AbstractDaoEnricher enricher = new AbstractDaoEnricher( txManager );
 
-		expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory ).times( 2 );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
-		expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession1 );
-		expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSession1.getSessionFactory( ) ).andReturn( mockSessionFactory );
-		expect( mockSessionFactory.getStatistics( ) ).andReturn( null ).times( 2 );
-		// setups
-		mockDao.setSession( mockSession );
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession1 );
-		// tearDowns
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession1 );
-		mockDao.setSession( mockSession );
-		mockDao.setSession( null );
+        ShardContext shardContext = new ShardContext( "testClient" );
+        ShardContext shardContext1 = new ShardContext( "testClient1" );
+        ShardContext shardContext2 = new ShardContext( "testClient2" );
 
-		replay( txManager, mockSessionFactory, mockSession, mockSession1, mockDao );
+        SessionFactory mockSessionFactory = EasyMock.createMock( SessionFactory.class );
+        Session mockSession = EasyMock.createMock( "mockSession", Session.class );
+        Session mockSession1 = EasyMock.createMock( "mockSession1", Session.class );
+        Session mockSession2 = EasyMock.createMock( "mockSession2", Session.class );
+        AbstractDao mockDao = EasyMock.createMock( "mockDao", AbstractDao.class );
+        DepartmentDaoImpl mockDao1 = EasyMock.createMock( "mockDao1", DepartmentDaoImpl.class );
+        PersonDaoImpl mockDao2 = EasyMock.createMock( "mockDao2", PersonDaoImpl.class );
 
-		enricher.setup( mockDao, shardContext );
-		enricher.setup( mockDao, shardContext1 );
-		enricher.setup( mockDao, shardContext1 );
-		enricher.setup( mockDao, shardContext1 );
+        // called during statistics logging
+        expect( mockSession2.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSession1.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSession.getSessionFactory( ) ).andReturn( mockSessionFactory );
+        expect( mockSessionFactory.getStatistics( ) ).andReturn( null ).times( 3 );
+        // called during statistics logging
 
-		enricher.tearDown( mockDao, shardContext1 );
-		enricher.tearDown( mockDao, shardContext1 );
-		enricher.tearDown( mockDao, shardContext1 );
-		enricher.tearDown( mockDao, shardContext );
+        expect( txManager.getSessionFactory( ) ).andReturn( mockSessionFactory ).times( 3 );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession1 );
+        expect( mockSessionFactory.getCurrentSession( ) ).andReturn( mockSession2 );
+        // setups
+        mockDao.setSession( mockSession );
+        mockDao1.setSession( mockSession );
+        mockDao2.setSession( mockSession1 );
+        mockDao1.setSession( mockSession2 );
+        // tearDowns
+        mockDao1.setSession( mockSession );
+        mockDao2.setSession( null );
+        mockDao1.setSession( null );
+        mockDao.setSession( null );
 
-		verify( txManager, mockSessionFactory, mockSession, mockSession1, mockDao );
-	}
+        replay( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao, mockDao1, mockDao2 );
+
+        enricher.setup( mockDao, shardContext );
+        enricher.setup( mockDao1, shardContext );
+        enricher.setup( mockDao2, shardContext1 );
+        enricher.setup( mockDao1, shardContext2 );
+
+        enricher.tearDown( mockDao1, shardContext2 );
+        enricher.tearDown( mockDao2, shardContext1 );
+        enricher.tearDown( mockDao1, shardContext );
+        enricher.tearDown( mockDao, shardContext );
+
+        verify( txManager, mockSessionFactory, mockSession, mockSession1, mockSession2, mockDao, mockDao1, mockDao2 );
+    }
 
 }

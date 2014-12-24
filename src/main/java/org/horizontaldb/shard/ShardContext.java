@@ -16,7 +16,7 @@
 
 package org.horizontaldb.shard;
 
-import java.util.Hashtable;
+import java.util.HashMap;
 import java.util.Map;
 
 /*
@@ -25,69 +25,41 @@ import java.util.Map;
  * resolvers and can be used for further type refinements. The clientId is immutable, dataSourceType is mutable.
  */
 public class ShardContext {
-	private String clientId;
-	private DataSourceType dataSourceType;
-	private Map<Class<?>, Map<String, Object>> beans = new Hashtable<>( );
+    private String clientId;
+    private DataSourceType dataSourceType;
+    private Map<Class<?>, Object> beans = new HashMap<>( );
 
-	public ShardContext( String clientId ) {
-		this( clientId, null );
-	}
+    public ShardContext( String clientId ) {
+        this( clientId, null );
+    }
 
-	public ShardContext( String clientId, DataSourceType dataSourceType ) {
-		this.clientId = clientId;
-		this.dataSourceType = dataSourceType;
-	}
+    public ShardContext( String clientId, DataSourceType dataSourceType ) {
+        this.clientId = clientId;
+        this.dataSourceType = dataSourceType;
+    }
 
-	public String getClientId() {
-		return clientId;
-	}
+    public String getClientId() {
+        return clientId;
+    }
 
-	public DataSourceType getDataSourceType() {
-		return dataSourceType;
-	}
+    public DataSourceType getDataSourceType() {
+        return dataSourceType;
+    }
 
-	public <T> T getBean( Class<T> beanClass ) {
-		return getBean( beanClass, null );
-	}
+    @SuppressWarnings( "unchecked" )
+    public <T> T getBean( Class<T> beanClass ) {
+        T retval = ( T ) beans.get( beanClass );
 
-	@SuppressWarnings( "unchecked" )
-	public <T> T getBean( Class<T> beanClass, String qualifier ) {
-		T retval = null;
+        return retval;
+    }
 
-		Map<String, Object> map = beans.get( beanClass );
+    public void setBean( Class<?> beanClass, Object bean ) {
+        beans.put( beanClass, bean );
+    }
 
-		if ( map != null ) {
-			if ( qualifier == null && map.size( ) == 1 ) {
-				retval = ( T ) map.values( ).iterator( ).next( );
-			} else {
-				retval = ( T ) map.get( qualifier );
-			}
-		}
-
-		return retval;
-	}
-
-	public void setBean( Class<?> beanClass, String qualifier, Object bean ) {
-		Map<String, Object> map = beans.get( beanClass );
-
-		if ( map == null ) {
-			map = new Hashtable<>( );
-
-			beans.put( beanClass, map );
-		}
-
-		String innerQualifier = qualifier;
-
-		if ( innerQualifier == null || innerQualifier.isEmpty( ) ) {
-			innerQualifier = bean.getClass( ).getName( );
-		}
-
-		map.put( innerQualifier, bean );
-	}
-
-	@Override
-	public String toString() {
-		return "ShardContext [clientId=" + clientId + ", dataSourceType=" + dataSourceType + "]";
-	}
+    @Override
+    public String toString() {
+        return "ShardContext [clientId=" + clientId + ", dataSourceType=" + dataSourceType + "]";
+    }
 
 }
